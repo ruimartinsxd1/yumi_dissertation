@@ -1,0 +1,11 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: yumi_description
+    relative_path: urdf/yumi.urdf
+  srdf:
+    relative_path: config/yumi.srdf
+  package_settings:
+    author_name: Jonathan Shulgach
+    author_email: jonathan@shulgach.com
+    generated_timestamp: 1702555800
+  config_pkg_generated_timestamp: 0

@@ -1,0 +1,33 @@
+# ROS2 Build artifacts
+build/
+install/
+log/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+.pytest_cache/
+
+# ROS
+*.bag
+*.db3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# colcon
+.colcon/
+
+# RViz
+*.rviz~
+.rviz2/

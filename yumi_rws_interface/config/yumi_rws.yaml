@@ -1,0 +1,59 @@
+# =============================================================================
+# Configuração do YuMi RWS Interface
+# =============================================================================
+
+# Configuração de rede
+network:
+  robot_ip: "192.168.125.1"
+  robot_port: 80
+  pc_ip: "192.168.125.50"
+
+# Credenciais RWS (default ABB)
+credentials:
+  username: "Default User"
+  password: "robotics"
+
+# Nomes das unidades mecânicas (verificar com o teu robot)
+mechanical_units:
+  left_arm: "ROB_L"
+  right_arm: "ROB_R"
+
+# Nomes das tasks RAPID (verificar com o teu robot)
+rapid_tasks:
+  left_arm: "T_ROB_L"
+  right_arm: "T_ROB_R"
+
+# Joint State Publisher
+joint_state_publisher:
+  ros__parameters:
+    robot_ip: "192.168.125.1"
+    publish_rate: 10.0  # Hz
+    left_mechunit: "ROB_L"
+    right_mechunit: "ROB_R"
+    publish_gripper_joints: false
+
+# RWS Commander
+rws_commander:
+  ros__parameters:
+    robot_ip: "192.168.125.1"
+    state_publish_rate: 1.0  # Hz
+
+# Nomes dos joints (conforme URDF)
+# Ordem: joints 1-7 do RWS mapeiam para estes nomes
+joint_names:
+  left_arm:
+    - "yumi_joint_1_l"
+    - "yumi_joint_2_l"
+    - "yumi_joint_7_l"
+    - "yumi_joint_3_l"
+    - "yumi_joint_4_l"
+    - "yumi_joint_5_l"
+    - "yumi_joint_6_l"
+  right_arm:
+    - "yumi_joint_1_r"
+    - "yumi_joint_2_r"
+    - "yumi_joint_7_r"
+    - "yumi_joint_3_r"
+    - "yumi_joint_4_r"
+    - "yumi_joint_5_r"
+    - "yumi_joint_6_r"

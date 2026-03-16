@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>yumi_rws_interface</name>
+  <version>0.1.0</version>
+  <description>
+    ROS 2 interface for ABB YuMi IRB 14000 control via Robot Web Services (RWS).
+    Provides joint state publishing, RAPID control services, and motion commands.
+  </description>
+  
+  <maintainer email="up202108756@edu.fe.up.pt">Rui Martins</maintainer>
+  <license>MIT</license>
+  
+  <author email="up202108756@edu.fe.up.pt">Rui Martins</author>
+
+  <!-- Build dependencies -->
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- Runtime dependencies -->
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>control_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>action_msgs</depend>
+
+  <!-- Python dependencies -->
+  <exec_depend>python3-requests</exec_depend>
+
+  <!-- Test dependencies -->
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
