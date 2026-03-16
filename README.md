@@ -3,7 +3,7 @@
 Master's dissertation — FEUP/INESCTEC 2026
 ABB YuMi IRB 14000 | ROS 2 Jazzy | MoveIt2 | RWS | EGM
 
-**Author:** Rui Martins (up202108756@edu.fe.up.pt)
+**Author:** Rui Martins (up202102606@up.pt // rui.m.martins@inesctec.pt)
 
 ---
 
@@ -42,6 +42,12 @@ ros2 launch yumi_rws_interface yumi_rws.launch.py robot_ip:=192.168.125.1
 
 ```bash
 ros2 launch yumi_rws_interface yumi_egm.launch.py robot_ip:=192.168.125.1
+```
+
+```bash
+unset GTK_PATH
+source ~/yumi_ws/install/setup.bash
+ros2 launch yumi_rws_interface yumi_egm.launch.py rviz:=true
 ```
 
 ### Run the task sequence
