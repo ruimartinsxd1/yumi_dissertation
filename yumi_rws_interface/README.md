@@ -1,8 +1,9 @@
 # yumi_rws_interface
 
 ROS 2 interface for controlling the ABB YuMi IRB 14000 dual-arm robot via
-Robot Web Services (RWS). Developed as part of the dissertation
-**"Collaborative Robotics for RCD Pre-Assembly"** at FEUP/INESCTEC, 2026.
+Robot Web Services (RWS) and Externally Guided Motion (EGM).
+Developed as part of the dissertation **"Collaborative Robotics for RCD Pre-Assembly"**
+at FEUP/INESCTEC, 2026.
 
 **Author:** Rui Martins (up202108756@edu.fe.up.pt)
 **Supervisors:** Prof. Luís F. Rocha, Prof. [co-orientador]
@@ -11,13 +12,20 @@ Robot Web Services (RWS). Developed as part of the dissertation
 
 ## Package Description
 
-This package provides the full ROS 2 ↔ RWS bridge for the YuMi:
+This package provides the full ROS 2 ↔ ABB YuMi bridge:
 
-- Publishes live joint states to `/joint_states` by polling the RWS HTTP API
-- Exposes a `FollowJointTrajectory` action server so MoveIt2 can move the real robot
-- Exposes a `GripperCommand` action server for SmartGripper control via MoveIt2
+- Publishes live joint states to `/joint_states` (10 Hz via RWS polling, or 100–250 Hz via EGM)
+- Exposes `FollowJointTrajectory` action servers so MoveIt2 can move the real robot
+- Exposes `GripperCommand` action servers for SmartGripper control via MoveIt2
 - Provides ROS 2 services for high-level robot control (RAPID start/stop, motors, PP reset)
-- Includes standalone scripts for teach-and-replay and diagnostics
+- Includes standalone scripts for pose teaching, task execution, and diagnostics
+
+Two transport modes are supported, each with its own launch file:
+
+| Mode | Launch file | Joint state rate | Trajectory execution |
+|------|-------------|-----------------|----------------------|
+| **RWS** | `yumi_rws.launch.py` | 10 Hz (HTTP polling) | RAPID `MoveAbsJ` via HTTP variable writes |
+| **EGM** | `yumi_egm.launch.py` | 100–250 Hz (UDP protobuf) | Real-time interpolation at 4 ms cycles |
 
 ---
 
@@ -25,11 +33,12 @@ This package provides the full ROS 2 ↔ RWS bridge for the YuMi:
 
 ### Nodes
 
-| Node | Entry Point | Description |
+| Node | Entry point | Description |
 |------|------------|-------------|
-| `yumi_joint_state_publisher` | `joint_state_publisher` | Reads joints from RWS at 10 Hz, publishes `/joint_states` |
+| `yumi_joint_state_publisher` | `joint_state_publisher` | Reads joints from RWS at 10 Hz, publishes `/joint_states` (RWS mode only) |
 | `yumi_rws_commander` | `rws_commander` | Services for RAPID/motor control, publishes `/yumi/controller_state` |
-| `rws_trajectory_controller` | `rws_trajectory_controller` | FollowJointTrajectory action server — sends multi-waypoint MoveAbsJ to RWS |
+| `rws_trajectory_controller` | `rws_trajectory_controller` | FollowJointTrajectory action server — sends multi-waypoint MoveAbsJ to RWS (RWS mode) |
+| `egm_trajectory_controller` | `egm_trajectory_controller` | FollowJointTrajectory action server + `/joint_states` publisher via EGM UDP (EGM mode) |
 | `gripper_action_server` | `gripper_action_server` | GripperCommand action server — controls SmartGrippers via TRobSG |
 | `gripper_service` | `gripper_service` | Simple Trigger services for gripper open/close/init/calibrate |
 
@@ -37,8 +46,8 @@ This package provides the full ROS 2 ↔ RWS bridge for the YuMi:
 
 | Topic | Type | Publisher |
 |-------|------|-----------|
-| `/joint_states` | `sensor_msgs/JointState` | `joint_state_publisher` |
-| `/yumi/controller_state` | `std_msgs/String` | `rws_commander` |
+| `/joint_states` | `sensor_msgs/JointState` | `joint_state_publisher` (RWS) or `egm_trajectory_controller` (EGM) |
+| `/yumi/controller_state` | `std_msgs/String` | `rws_commander` @ 1 Hz |
 
 ### Services
 
@@ -64,6 +73,7 @@ This package provides the full ROS 2 ↔ RWS bridge for the YuMi:
 
 ### Communication Flow
 
+**RWS mode:**
 ```
 MoveIt2
   │
@@ -74,84 +84,130 @@ MoveIt2
 robot_state_publisher ◄── /joint_states ◄── joint_state_publisher ◄───┘
 ```
 
+**EGM mode:**
+```
+MoveIt2
+  │
+  ├── /*/follow_joint_trajectory ──► egm_trajectory_controller ──► UDP 6511/6512 ──► IRC5 EGM
+  │                                         │
+  │                                         ├── /joint_states (250 Hz, from EGM feedback)
+  │                                         └── gripper positions (5 Hz, from RWS)
+  │
+  └── /*/gripper_cmd ──────────────► gripper_action_server ──────► RWS HTTP ──► TRobSG
+```
+
 ---
 
 ## Prerequisites
 
 ### Robot Setup
 1. YuMi connected to the PC on the same network (default IP: `192.168.125.1`)
-2. PC configured to IP `192.168.125.50` (or modify `config/yumi_rws.yaml`)
+2. PC configured to IP `192.168.125.50` (or pass `robot_ip:=<ip>` at launch)
 3. FlexPendant in **AUTO** mode
-4. RAPID program running (`PP to Main` + `Play`)
+4. RAPID running (`PP to Main` + `Play`)
 5. Modules `TRobRAPID` and `TRobSG` loaded in both tasks (`T_ROB_L`, `T_ROB_R`)
 
 ### Software
 - ROS 2 Jazzy on Ubuntu 24.04
 - Python 3.12
-- `python3-requests` (`pip install requests` or `apt install python3-requests`)
-- MoveIt2 (for full motion planning stack)
-- `yumi_description` and `yumi_moveit_config` packages (in `yumi_ros2/`)
+- `python3-requests` (`apt install python3-requests`)
+- MoveIt2 (`apt install ros-jazzy-moveit`)
+- `yumi_description` and `yumi_moveit_config` packages (in `../yumi_ros2/`)
 
 ---
 
 ## How to Launch
 
-### 1. Basic RWS Bridge (joint states + services only)
+### 1. RWS mode — full MoveIt2 stack via HTTP
+
 ```bash
 ros2 launch yumi_rws_interface yumi_rws.launch.py robot_ip:=192.168.125.1
 ```
-Starts: `joint_state_publisher` + `rws_commander`
 
-### 2. Full MoveIt2 Stack with Real Robot
+Starts: `robot_state_publisher` + `joint_state_publisher` (10 Hz) + `rws_commander`
+      + `rws_trajectory_controller` + `gripper_action_server` + `move_group`
+
+Optional: add `rviz:=true` to open RViz2.
+
+### 2. EGM mode — full MoveIt2 stack at 250 Hz
+
 ```bash
-ros2 launch yumi_rws_interface yumi_moveit_real.launch.py robot_ip:=192.168.125.1
+ros2 launch yumi_rws_interface yumi_egm.launch.py robot_ip:=192.168.125.1
 ```
-Starts: `robot_state_publisher` + `joint_state_publisher` + `rws_trajectory_controller`
-       + `move_group` + `gripper_action_server` + RViz2
 
-### 3. Standalone Tools
+Starts: `robot_state_publisher` + `rws_commander` + `egm_trajectory_controller`
+      + `gripper_action_server` + `move_group`
+
+Automatically adds a table collision object to the planning scene 8 s after startup.
+
+Optional arguments:
 ```bash
-# Move right arm to a test position
-ros2 run yumi_rws_interface move_yumi
-
-# Move both arms to Home (calibration position)
-ros2 run yumi_rws_interface move_yumi_home
-
-# WASD keyboard control (right arm, joints 1-3)
-ros2 run yumi_rws_interface move_yumi_wasd_no_rapid
+ros2 launch yumi_rws_interface yumi_egm.launch.py \
+  robot_ip:=192.168.125.1 \
+  left_udp_port:=6511 \
+  right_udp_port:=6512 \
+  rviz:=true
 ```
 
 ---
 
-## Scripts (Teach & Replay)
+## Scripts
 
-Located in `scripts/`. Run directly with Python (no ROS 2 required).
+Located in `scripts/`. Run directly with Python (no `ros2 run` needed).
 
 ```bash
-cd ~/yumi_ws/src/yumi_rws_interface/scripts/
-
-# Interactive single-arm teach & replay
-python3 teach_pick_place.py
-
-# Replay with pre-recorded positions (no teaching phase)
-python3 replay_pick_place.py
-
-# Interactive dual-arm handover teach & replay
-python3 teach_handover.py
-
-# Diagnostics — discover available RWS endpoints
-python3 test_rws_discovery.py [robot_ip]
+cd ~/yumi_ws/src/yumi_dissertation/yumi_rws_interface/scripts/
 ```
 
-Archived scripts (validated, kept for reference):
-- `archive/replay_handover_safe.py` — Dual-arm handover with safety intermediate positions
+### Task sequence (requires ROS 2 + active launch)
+
+```bash
+# Execute the full RCD wire insertion cycle (loops until Ctrl+C)
+python3 yumi_task_sequence.py
+```
+
+### Pose teaching
+
+```bash
+# Record all poses interactively (requires /joint_states to be publishing)
+python3 record_poses.py
+
+# Update a single pose without re-recording everything
+python3 record_poses.py --update right_pick
+```
+
+Poses are saved to `scripts/poses.yaml`. Required poses for the task:
+`right_pick_approach`, `right_pick`, `handover_right`, `handover_left`,
+`left_insert_approach`, `left_insert`
+
+### Diagnostics
+
+```bash
+# Discover available RWS endpoints on the controller
+python3 test_rws_discovery.py
+python3 test_rws_discovery.py 192.168.125.1
+```
+
+### Archived scripts (validated, kept for reference)
+
+Located in `scripts/archive/`:
+
+| Script | Description |
+|--------|-------------|
+| `replay_handover_safe.py` | First validated full-cycle dual-arm handover — hardcoded positions with intermediate safety waypoints |
+| `teach_handover.py` | Interactive dual-arm handover teach & replay |
+| `teach_pick_place.py` | Interactive single-arm pick & place teach |
+| `replay_pick_place.py` | Single-arm pick & place replay |
+| `move_yumi.py` | Send a single test joint target to the right arm |
+| `move_yumi_home.py` | Move both arms to ABB calibration home |
+| `move_yumi_wasd_no_rapid.py` | Live WASD keyboard control of the right arm (joints 1–3) |
 
 ---
 
 ## Useful Commands
 
 ```bash
-# Build the package
+# Build
 cd ~/yumi_ws && colcon build --packages-select yumi_rws_interface --symlink-install
 
 # Check running nodes
@@ -180,47 +236,58 @@ ros2 service call /right_gripper/close std_srvs/srv/Trigger
 
 ## Technical Notes
 
-### Joint Order Mapping (URDF ↔ RWS)
+### Joint Order Mapping (URDF ↔ RWS/EGM)
 
-RWS returns joints as `[rax_1, rax_2, rax_3, rax_4, rax_5, rax_6, eax_a]`.
+RWS and EGM return joints as `[rax_1, rax_2, rax_3, rax_4, rax_5, rax_6, eax_a]`.
 The URDF expects `[joint_1, joint_2, joint_7, joint_3, joint_4, joint_5, joint_6]`
-(joint 7 = gripper rail, between joint 2 and 3 in the URDF chain).
+(joint 7 = gripper rail, sits between joint 2 and 3 in the URDF chain).
 
 Reorder index: `RWS_TO_URDF_IDX = [0, 1, 6, 2, 3, 4, 5]`
 
-### Trajectory Strategy
+This mapping is used in: `joint_state_publisher`, `rws_trajectory_controller`,
+`egm_manager`, and `egm_trajectory_controller`.
+
+### RWS Trajectory Strategy
 
 `rws_trajectory_controller` receives full trajectories from MoveIt2 and executes
 them via **`runMoveAbsJMulti`** — a RAPID routine that iterates over an array of
 `jointtarget` waypoints.
 
 **Why not send only the final point?**
-MoveIt2 generates trajectories that avoid obstacles and respect joint limits along
-the full path. Sending only the final point causes the IRC5 to go in a straight
-joint-space move, ignoring the planned path and potentially causing collisions or
-unexpected configurations.
+MoveIt2 generates trajectories that avoid obstacles along the full path. Sending
+only the final point causes the IRC5 to take a straight joint-space line, ignoring
+the planned path and potentially causing collisions.
 
 **How it works:**
-1. The trajectory from MoveIt2 can have hundreds of points — all are downsampled
-   to at most `max_waypoints` (default: 16, hard limit: 18) using a joint-step
-   threshold (`resample_max_joint_step_deg`, default: 6°): only points where any
-   joint moves more than the threshold from the previous kept point are retained.
-   The first and last points are always kept.
+1. The trajectory from MoveIt2 (hundreds of points) is downsampled to at most
+   `max_waypoints` (default: 16, hard limit: 18) using a joint-step threshold
+   (`resample_max_joint_step_deg`, default: 6°). Only points where any joint
+   moved more than the threshold from the last kept point are retained.
+   First and last points are always kept.
 2. Each selected waypoint is written to the RAPID array `wp_array{i}` as a
    `jointtarget` value (`[[rax_1..rax_6],[eax_a,9E9,...]]`).
-3. `wp_count` is set to the number of waypoints written.
-4. `routine_name_input` is set to `"runMoveAbsJMulti"`.
-5. Signal `RUN_RAPID_ROUTINE` is pulsed to trigger execution.
+3. `wp_count`, `wp_speed`, and `routine_name_input = "runMoveAbsJMulti"` are written.
+4. Signal `RUN_RAPID_ROUTINE` is pulsed to trigger RAPID execution.
 
-The RAPID side loops from `1` to `wp_count` and calls `MoveAbsJ wp_array{i}` for
-each, executing the full trajectory on the controller.
-
-**Additional safety features added:**
-- `normalize_ext_axis`: adjusts `eax_a` (joint 7, gripper rail) in all waypoints
-  to take the shortest path relative to the current position, avoiding 360° wraps.
+**Safety features:**
+- `normalize_ext_axis`: adjusts `eax_a` (joint 7) in all waypoints to take the
+  shortest path, avoiding 360° wraps in the `both_arms` case.
 - `max_jump_deg` (default: 220°): rejects the entire trajectory if any consecutive
   joint step exceeds the threshold, preventing unsafe moves from stale or corrupt
   waypoints.
+
+### EGM Trajectory Strategy
+
+`egm_trajectory_controller` follows trajectories in real time at 250 Hz (4 ms cycle)
+by sending `EgmSensor` protobuf packets over UDP.
+
+**Dual-arm timing constraint:** all sends must precede all receives in each 4 ms
+cycle. Sequential per-arm send+receive increases cycle time to ~100 ms, exceeding
+the EGM `comm_timeout` and stopping the robot.
+
+**Session keep-alive:** hold threads continuously send the current position back to
+the IRC5 between trajectories. If no UDP packet is received within the controller's
+`comm_timeout` (typically 1–5 s), the EGM session stops.
 
 ### RAPID Trigger Mechanism
 
@@ -228,22 +295,12 @@ All motion commands use a "write variable → pulse signal" pattern:
 
 **Multi-waypoint motion (`runMoveAbsJMulti`):**
 1. Write `wp_array{1}` .. `wp_array{N}` — each a `jointtarget`
-2. Write `wp_count` — number of waypoints
-3. Write `wp_speed` — speed data (e.g. `[200,100,200,100]`)
-4. Write `routine_name_input` = `"runMoveAbsJMulti"`
-5. Pulse `RUN_RAPID_ROUTINE` high then low
-
-**Single-point motion (`runMoveAbsJ`, legacy scripts):**
-1. Write `move_jointtarget_input` — target `jointtarget`
-2. Write `move_speed_input` and `routine_name_input` = `"runMoveAbsJ"`
-3. Pulse `RUN_RAPID_ROUTINE` high then low
+2. Write `wp_count`, `wp_speed`, `routine_name_input = "runMoveAbsJMulti"`
+3. Pulse `RUN_RAPID_ROUTINE` high then low (delay: 0.1 s)
 
 **Gripper commands:**
-1. Write `command_input`
+1. Write `command_input` (+ `target_position_input` for `g_MoveTo`)
 2. Pulse `RUN_SG_ROUTINE` high then low
-
-The pulse delay (`SIGNAL_PULSE_DELAY = 0.1 s`) gives the IRC5 time to detect
-the rising edge.
 
 ### Network Configuration
 
@@ -254,6 +311,8 @@ the rising edge.
 | Authentication | HTTP Digest |
 | Username | `Default User` |
 | Password | `robotics` |
+| EGM left arm UDP port | `6511` |
+| EGM right arm UDP port | `6512` |
 | RAPID Tasks | `T_ROB_L` (left), `T_ROB_R` (right) |
 | Motion Module | `TRobRAPID` |
 | Gripper Module | `TRobSG` |
