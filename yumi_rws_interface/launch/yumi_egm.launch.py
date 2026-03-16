@@ -40,7 +40,9 @@ def generate_launch_description():
     limits_file = os.path.join(yumi_moveit_dir, "config", "joint_limits.yaml")
     rviz_file   = os.path.join(yumi_moveit_dir, "config", "moveit.rviz")
 
-    table_script = "/home/rui-martins/yumi_ws/src/yumi_rws_interface/scripts/add_table_collision.py"
+    table_script = os.path.join(
+        get_package_share_directory("yumi_rws_interface"), "scripts", "add_table_collision.py"
+    )
 
     # --- MoveIt config ---
     moveit_config = (
