@@ -1,0 +1,81 @@
+# =============================================================================
+# Controllers ros2_control para simulação Gazebo Harmonic
+# Usado pelo plugin gz_ros2_control::GazeboSimROS2ControlPlugin
+# =============================================================================
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    left_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    right_arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    left_gripper_controller:
+      type: position_controllers/GripperActionController
+
+    right_gripper_controller:
+      type: position_controllers/GripperActionController
+
+left_arm_controller:
+  ros__parameters:
+    joints:
+      - yumi_joint_1_l
+      - yumi_joint_2_l
+      - yumi_joint_7_l
+      - yumi_joint_3_l
+      - yumi_joint_4_l
+      - yumi_joint_5_l
+      - yumi_joint_6_l
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: true
+
+right_arm_controller:
+  ros__parameters:
+    joints:
+      - yumi_joint_1_r
+      - yumi_joint_2_r
+      - yumi_joint_7_r
+      - yumi_joint_3_r
+      - yumi_joint_4_r
+      - yumi_joint_5_r
+      - yumi_joint_6_r
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: true
+
+left_gripper_controller:
+  ros__parameters:
+    joint: gripper_l_joint
+    action_monitor_rate: 20.0
+    goal_tolerance: 0.001
+    max_effort: 20.0
+    allow_stalling: false
+    stall_velocity_threshold: 0.001
+    stall_timeout: 1.0
+
+right_gripper_controller:
+  ros__parameters:
+    joint: gripper_r_joint
+    action_monitor_rate: 20.0
+    goal_tolerance: 0.001
+    max_effort: 20.0
+    allow_stalling: false
+    stall_velocity_threshold: 0.001
+    stall_timeout: 1.0

@@ -1,0 +1,3 @@
+[submodule "yumi_ros2"]
+	path = yumi_ros2
+	url = https://github.com/ruimartinsxd1/yumi_ros2.git

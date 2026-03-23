@@ -1,17 +1,16 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>yumi_rws_interface</name>
+  <name>yumi_egm_interface</name>
   <version>0.1.0</version>
   <description>
-    ROS 2 interface for ABB YuMi IRB 14000 control via Robot Web Services (RWS).
-    Provides joint state publishing (10 Hz), RAPID control services, RWS trajectory
-    execution, and gripper control. For real-time EGM (250 Hz) see yumi_egm_interface.
+    ROS 2 interface for ABB YuMi IRB 14000 real-time control via EGM (Externally Guided Motion).
+    Provides 250 Hz trajectory execution and joint state publishing over UDP.
   </description>
-  
+
   <maintainer email="up202108756@edu.fe.up.pt">Rui Martins</maintainer>
   <license>MIT</license>
-  
+
   <author email="up202108756@edu.fe.up.pt">Rui Martins</author>
 
   <!-- Build dependencies -->
@@ -21,11 +20,12 @@
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>std_srvs</depend>
   <depend>control_msgs</depend>
   <depend>trajectory_msgs</depend>
   <depend>action_msgs</depend>
+
+  <!-- Depends on yumi_rws_interface for RWS client (EGM start/stop signals) -->
+  <depend>yumi_rws_interface</depend>
 
   <!-- Python dependencies -->
   <exec_depend>python3-requests</exec_depend>
