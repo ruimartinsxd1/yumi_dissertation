@@ -6,7 +6,7 @@ Developed as part of the dissertation **"Collaborative Robotics for RCD Pre-Asse
 at FEUP/INESCTEC, 2026.
 
 **Author:** Rui Martins (up202108756@edu.fe.up.pt)
-**Supervisors:** Prof. Luís F. Rocha, Prof. [co-orientador]
+**Supervisors:** Prof. Luís F. Rocha and Carlos M Costa
 
 > For real-time EGM control (250 Hz UDP), see the companion package
 > [`yumi_egm_interface`](../yumi_egm_interface/).
