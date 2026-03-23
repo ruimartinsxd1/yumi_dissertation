@@ -1,31 +1,33 @@
 # yumi_rws_interface
 
 ROS 2 interface for controlling the ABB YuMi IRB 14000 dual-arm robot via
-Robot Web Services (RWS) and Externally Guided Motion (EGM).
+Robot Web Services (RWS) — HTTP polling at 10 Hz.
 Developed as part of the dissertation **"Collaborative Robotics for RCD Pre-Assembly"**
 at FEUP/INESCTEC, 2026.
 
 **Author:** Rui Martins (up202108756@edu.fe.up.pt)
 **Supervisors:** Prof. Luís F. Rocha, Prof. [co-orientador]
 
+> For real-time EGM control (250 Hz UDP), see the companion package
+> [`yumi_egm_interface`](../yumi_egm_interface/).
+
 ---
 
 ## Package Description
 
-This package provides the full ROS 2 ↔ ABB YuMi bridge:
+This package provides the RWS (HTTP) half of the ROS 2 ↔ ABB YuMi bridge:
 
-- Publishes live joint states to `/joint_states` (10 Hz via RWS polling, or 100–250 Hz via EGM)
-- Exposes `FollowJointTrajectory` action servers so MoveIt2 can move the real robot
+- Publishes live joint states to `/joint_states` at 10 Hz via RWS polling
+- Exposes `FollowJointTrajectory` action servers for MoveIt2 (RAPID MoveAbsJ via HTTP)
 - Exposes `GripperCommand` action servers for SmartGripper control via MoveIt2
 - Provides ROS 2 services for high-level robot control (RAPID start/stop, motors, PP reset)
 - Includes standalone scripts for pose teaching, task execution, and diagnostics
-
-Two transport modes are supported, each with its own launch file:
+- Also used by `yumi_egm_interface` for gripper control and EGM start/stop signals
 
 | Mode | Launch file | Joint state rate | Trajectory execution |
 |------|-------------|-----------------|----------------------|
 | **RWS** | `yumi_rws.launch.py` | 10 Hz (HTTP polling) | RAPID `MoveAbsJ` via HTTP variable writes |
-| **EGM** | `yumi_egm.launch.py` | 100–250 Hz (UDP protobuf) | Real-time interpolation at 4 ms cycles |
+| **EGM** | `yumi_egm_interface` → `yumi_egm.launch.py` | 100–250 Hz (UDP) | Real-time interpolation at 4 ms cycles |
 
 ---
 
@@ -131,8 +133,10 @@ Optional: add `rviz:=true` to open RViz2.
 
 ### 2. EGM mode — full MoveIt2 stack at 250 Hz
 
+EGM is provided by the companion package `yumi_egm_interface`:
+
 ```bash
-ros2 launch yumi_rws_interface yumi_egm.launch.py robot_ip:=192.168.125.1
+ros2 launch yumi_egm_interface yumi_egm.launch.py robot_ip:=192.168.125.1
 ```
 
 Starts: `robot_state_publisher` + `rws_commander` + `egm_trajectory_controller`
@@ -142,7 +146,7 @@ Automatically adds a table collision object to the planning scene 8 s after star
 
 Optional arguments:
 ```bash
-ros2 launch yumi_rws_interface yumi_egm.launch.py \
+ros2 launch yumi_egm_interface yumi_egm.launch.py \
   robot_ip:=192.168.125.1 \
   left_udp_port:=6511 \
   right_udp_port:=6512 \
