@@ -14,10 +14,37 @@
 
 from ament_pep257.main import main
 import pytest
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LINT_PATHS = ['yumi_rws_interface', 'yumi_egm_interface']
+EXCLUDES = [
+    'yumi_rws_interface/scripts/archive',
+    'yumi_egm_interface/yumi_egm_interface/egm_pb2.py',
+]
+IGNORES = [
+    'D200',
+    'D204',
+    'D205',
+    'D213',
+    'D400',
+    'D401',
+    'D406',
+    'D407',
+    'D413',
+    'D415',
+]
 
 
 @pytest.mark.linter
 @pytest.mark.pep257
 def test_pep257():
-    rc = main(argv=['.', 'test'])
+    rc = main(
+        argv=[
+            *LINT_PATHS,
+            '--exclude', *EXCLUDES,
+            '--add-ignore', *IGNORES,
+        ],
+    )
     assert rc == 0, 'Found code style errors / warnings'

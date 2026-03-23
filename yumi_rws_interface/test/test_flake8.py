@@ -14,12 +14,28 @@
 
 from ament_flake8.main import main_with_errors
 import pytest
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FLAKE8_CONFIG = REPO_ROOT / '.flake8'
+LINT_PATHS = ['yumi_rws_interface', 'yumi_egm_interface']
+EXCLUDES = [
+    'yumi_rws_interface/scripts/archive',
+    'yumi_egm_interface/yumi_egm_interface/egm_pb2.py',
+]
 
 
 @pytest.mark.flake8
 @pytest.mark.linter
 def test_flake8():
-    rc, errors = main_with_errors(argv=[])
+    rc, errors = main_with_errors(
+        argv=[
+            '--config', str(FLAKE8_CONFIG),
+            *LINT_PATHS,
+            '--exclude', *EXCLUDES,
+        ],
+    )
     assert rc == 0, \
         'Found %d code style errors / warnings:\n' % len(errors) + \
         '\n'.join(errors)

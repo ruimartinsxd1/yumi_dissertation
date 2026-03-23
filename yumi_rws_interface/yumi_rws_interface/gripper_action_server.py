@@ -103,6 +103,12 @@ class GripperActionServer(Node):
             if not ok:
                 self.get_logger().error(
                     f"Gripper {lado}: falha RWS ao enviar moveTo={move_mm}mm")
+                result = GripperCommand.Result()
+                result.position = 0.0
+                result.reached_goal = False
+                result.stalled = True
+                goal_handle.abort()
+                return result
 
         time.sleep(GRIPPER_WAIT)
 

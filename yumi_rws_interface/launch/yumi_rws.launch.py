@@ -19,7 +19,7 @@ Uso:
 
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, TimerAction, ExecuteProcess
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
 from launch_ros.actions import Node
@@ -40,6 +40,10 @@ def generate_launch_description():
     # --- Paths ---
     yumi_desc_dir = get_package_share_directory("yumi_description")
     yumi_moveit_dir = get_package_share_directory("yumi_moveit_config")
+
+    table_script = os.path.join(
+        get_package_share_directory("yumi_rws_interface"), "scripts", "add_table_collision.py"
+    )
 
     urdf_file   = os.path.join(yumi_desc_dir,    "urdf",   "yumi.urdf")
     srdf_file   = os.path.join(yumi_moveit_dir,  "config", "yumi.srdf")
@@ -151,6 +155,17 @@ def generate_launch_description():
         condition=IfCondition(rviz_config),
     )
 
+    # Corre 8s após o launch para dar tempo ao MoveIt2 de arrancar
+    table_collision = TimerAction(
+        period=8.0,
+        actions=[
+            ExecuteProcess(
+                cmd=["python3", table_script],
+                output="screen",
+            )
+        ],
+    )
+
     return LaunchDescription([
         rviz_arg,
         robot_ip_arg,
@@ -162,4 +177,5 @@ def generate_launch_description():
         gripper_server,
         move_group,
         rviz,
+        table_collision,
     ])

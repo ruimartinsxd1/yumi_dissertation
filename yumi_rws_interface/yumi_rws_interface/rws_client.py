@@ -518,7 +518,7 @@ def main():
     ip = sys.argv[1] if len(sys.argv) > 1 else "192.168.125.1"
     
     print(f"\n{'='*60}")
-    print(f"TESTE DO CLIENTE RWS - YuMi")
+    print("TESTE DO CLIENTE RWS - YuMi")
     print(f"IP: {ip}")
     print(f"{'='*60}\n")
     

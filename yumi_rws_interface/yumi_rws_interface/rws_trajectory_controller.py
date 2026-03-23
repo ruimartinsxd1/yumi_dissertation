@@ -96,6 +96,9 @@ class RWSTrajectoryController(Node):
             self.get_parameter("resample_max_joint_step_deg").value
         )
 
+        self.declare_parameter("move_speed", "[200,100,200,100]")
+        self.move_speed = self.get_parameter("move_speed").value
+
         # HTTP session
         self.session = requests.Session()
         self.session.auth = HTTPDigestAuth(user, pwd)
@@ -237,11 +240,14 @@ class RWSTrajectoryController(Node):
                         f"[DEBUG] {lado} delta(last-cur)=[{', '.join(f'{d:.1f}' for d in diffs_last)}]"
                     )
 
-        # Escrever TODOS os lados; só pulsar se tudo correr bem
+        # Enviar waypoints via runMoveAbsJMulti — segue a trajetória planeada pelo MoveIt2
+        # (evita colisões com a mesa, base do robot e outros obstáculos)
+        final_targets = {lado: wps[-1] for lado, wps in sides_waypoints.items()}
+
         with self._rws_lock:
             ok_all = True
-            for lado, waypoints in sides_waypoints.items():
-                ok_side = self._write_multi_waypoints(lado, waypoints)
+            for lado, wps in sides_waypoints.items():
+                ok_side = self._write_multi_waypoints(lado, wps)
                 ok_all = ok_all and ok_side
 
             if not ok_all:
@@ -253,8 +259,6 @@ class RWSTrajectoryController(Node):
 
             self._pulse_signal()
 
-        # Esperar que chegue ao ponto final
-        final_targets = {lado: waypoints[-1] for lado, waypoints in sides_waypoints.items()}
         ok = self._wait_position_reached(final_targets)
 
         # Feedback final
@@ -509,45 +513,46 @@ class RWSTrajectoryController(Node):
             f"[{j[6]},9E9,9E9,9E9,9E9,9E9]]"
         )
 
+    def _write_single_waypoint(self, lado: str, joints_deg: List[float]) -> bool:
+        task = self.TASK[lado]
+        jt = self._joints_to_jointtarget(joints_deg)
+        ok1 = self._set_rapid_var(task, "move_jointtarget_input", jt)
+        ok2 = self._set_rapid_var(task, "move_speed_input", self.move_speed)
+        ok3 = self._set_rapid_var(task, "routine_name_input", '"runMoveAbsJ"')
+        return ok1 and ok2 and ok3
+
     def _write_multi_waypoints(self, lado: str, waypoints: List[List[float]]) -> bool:
+        """
+        Escreve N waypoints no wp_array{1..N} do TRobRAPID e dispara runMoveAbsJMulti.
+        O robot percorre a trajetória completa planeada pelo MoveIt2 (evita obstáculos).
+        Requer o TRobRAPID.mod modificado (com wp_array{18}, wp_count, wp_speed).
+        """
         task = self.TASK[lado]
         n = len(waypoints)
-        if n <= 0:
+        if n == 0:
+            return True
+
+        # Escrever cada waypoint no array RAPID
+        for i, jdeg in enumerate(waypoints, start=1):
+            jt = self._joints_to_jointtarget(jdeg)
+            if not self._set_rapid_var(task, f"wp_array{{{i}}}", jt):
+                return False
+
+        # Escrever contagem, velocidade e nome da rotina
+        if not self._set_rapid_var(task, "wp_count", str(n)):
             return False
-        if n > self.max_wp:
-            waypoints = waypoints[: self.max_wp]
-            n = len(waypoints)
-
-        ok_all = True
-
-        try:
-            for i, wp in enumerate(waypoints):
-                jt = self._joints_to_jointtarget(wp)
-                ok = self._set_rapid_var(task, f"wp_array{{{i+1}}}", jt)
-                if not ok:
-                    ok_all = False
-                    self.get_logger().error(f"Falha a escrever wp_array{{{i+1}}} ({lado}) = {jt}")
-
-            ok_count = self._set_rapid_var(task, "wp_count", str(n))
-            ok_speed = self._set_rapid_var(task, "wp_speed", DEFAULT_SPEED)
-            ok_routine = self._set_rapid_var(task, "routine_name_input", '"runMoveAbsJMulti"')
-
-            ok_all = ok_all and ok_count and ok_speed and ok_routine
-
-            if ok_all:
-                self.get_logger().info(f"MoveAbsJMulti {lado}: {n} waypoints escritos")
-            else:
-                self.get_logger().error(f"MoveAbsJMulti {lado}: escrita incompleta")
-
-            return ok_all
-
-        except Exception as e:
-            self.get_logger().error(f"Erro RWS write {lado}: {e}")
+        if not self._set_rapid_var(task, "wp_speed", self.move_speed):
+            return False
+        if not self._set_rapid_var(task, "routine_name_input", '"runMoveAbsJMulti"'):
             return False
 
-    def _wait_position_reached(self, rws_targets: Dict[str, List[float]], poll_hz: float = 5.0) -> bool:
+        self.get_logger().info(f"[{lado}] {n} waypoints escritos → runMoveAbsJMulti")
+        return True
+
+    def _wait_position_reached(self, rws_targets: Dict[str, List[float]], poll_hz: float = 5.0, timeout: float = None) -> bool:
+        t_max = timeout if timeout is not None else self.settle_timeout
         t0 = time.time()
-        while (time.time() - t0) < self.settle_timeout:
+        while (time.time() - t0) < t_max:
             all_ok = True
             for lado, target in rws_targets.items():
                 current = self._read_joints(lado)

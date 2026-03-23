@@ -15,7 +15,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 def generate_launch_description():
     # --- Argumentos ---
-    rviz_arg        = DeclareLaunchArgument("rviz", default_value="false",
+    rviz_arg        = DeclareLaunchArgument("rviz", default_value="true",
                                             description="Lançar RViz (true/false)")
     robot_ip_arg    = DeclareLaunchArgument("robot_ip", default_value="192.168.125.1",
                                             description="IP do controlador IRC5")

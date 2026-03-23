@@ -22,7 +22,7 @@ from requests.auth import HTTPDigestAuth
 
 import rclpy
 from rclpy.node import Node
-from std_srvs.srv import Trigger, SetBool
+from std_srvs.srv import Trigger
 
 
 # Atraso do pulso do sinal digital (segundos) — tempo para o controlador detetar o pulso
