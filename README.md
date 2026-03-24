@@ -39,34 +39,32 @@ git submodule update --init --recursive
 
 ```bash
 cd ~/yumi_ws
-colcon build --symlink-install
+colcon build --packages-select yumi_description yumi_moveit_config yumi_rws_interface yumi_egm_interface --symlink-install
 source install/setup.bash
 ```
 
-Or build only the interface packages:
+Minimal repo checks:
 
 ```bash
-colcon build --packages-select yumi_rws_interface yumi_egm_interface --symlink-install
+cd ~/yumi_ws/src/yumi_dissertation
+pytest -q yumi_rws_interface/test
+python3 -m compileall yumi_rws_interface yumi_egm_interface
 ```
 
 ### Launch — RWS mode (10 Hz, RAPID-based)
 
 ```bash
+unset GTK_PATH
+source ~/yumi_ws/install/setup.bash
 ros2 launch yumi_rws_interface yumi_rws.launch.py robot_ip:=192.168.125.1
 ```
 
 ### Launch — EGM mode (250 Hz, real-time)
 
 ```bash
-ros2 launch yumi_egm_interface yumi_egm.launch.py robot_ip:=192.168.125.1
-```
-
-With RViz:
-
-```bash
 unset GTK_PATH
 source ~/yumi_ws/install/setup.bash
-ros2 launch yumi_egm_interface yumi_egm.launch.py rviz:=true
+ros2 launch yumi_egm_interface yumi_egm.launch.py robot_ip:=192.168.125.1
 ```
 
 ### Run the task sequence
@@ -109,3 +107,28 @@ Fork of [Jshulgach/yumi_ros2](https://github.com/Jshulgach/yumi_ros2) at
 Modifications from upstream:
 - `yumi_moveit_config`: new SRDF with `both_arms` planning group, `moveit_controllers_egm.yaml`, `joint_limits.yaml`, updated launch for MoveIt2 Jazzy
 - `yumi_description`: minor mesh fix (`body_without_cam.stl` to remove Zivid camera from RViz)
+- `yumi_description`: joint limits updated to ABB IRB 14000 official working ranges
+
+---
+
+## Current Status
+
+Validated in this workspace:
+- RWS stack launches cleanly and publishes `/joint_states` at about 10 Hz
+- EGM stack launches and executes MoveIt trajectories successfully
+- RWS multi-waypoint RAPID execution uses blended intermediate waypoints for smoother motion
+- MoveIt collision checking now includes the `yumi_body` versus `yumi_link_2_*` pairs again
+
+Current caution:
+- The left gripper should still be physically verified in RWS mode, because recent logs suggested it may not always change position as expected even when the action server responds
+
+---
+
+## Recommended Test Order
+
+1. Build and source the workspace.
+2. Run `pytest -q yumi_rws_interface/test`.
+3. Launch RWS mode and verify nodes, actions, services, and grippers.
+4. Test left arm, right arm, and both arms in RViz under RWS.
+5. Launch EGM mode and verify `/joint_states`, action servers, and real-time motion.
+6. Run `yumi_task_sequence.py` only after the lower-level checks pass.

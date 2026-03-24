@@ -82,7 +82,7 @@ def generate_launch_description():
         name="yumi_rws_commander",
         parameters=[{
             "robot_ip": robot_ip,
-            "state_publish_rate": 1.0,
+            "state_publish_rate": 0.0,
         }],
         output="screen",
         emulate_tty=True,
@@ -96,8 +96,10 @@ def generate_launch_description():
             "robot_ip": robot_ip,
             "left_udp_port": left_port,
             "right_udp_port": right_port,
-            "joint_state_rate": 100.0,
+            "joint_state_rate": 250.0,
             "trajectory_dt": 0.004,
+            "recv_timeout": 0.01,
+            "joint_state_freshness_sec": 0.25,
         }],
         output="screen",
     )

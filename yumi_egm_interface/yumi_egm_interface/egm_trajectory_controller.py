@@ -48,8 +48,21 @@ from control_msgs.action import FollowJointTrajectory
 from yumi_egm_interface.egm_manager import (
     EGMManager, EGMConfig, EGMArmChannel,
     LEFT_JOINT_NAMES, RIGHT_JOINT_NAMES,
-    LEFT_GRIPPER_JOINT, RIGHT_GRIPPER_JOINT,
+    LEFT_GRIPPER_JOINT, LEFT_GRIPPER_MIMIC_JOINT,
+    RIGHT_GRIPPER_JOINT, RIGHT_GRIPPER_MIMIC_JOINT,
 )
+
+# Joint limits from yumi.urdf in URDF joint order:
+# [j1, j2, j7, j3, j4, j5, j6]
+ARM_JOINT_LIMITS_RAD = [
+    (-2.9, 2.9),
+    (-2.4, 0.7),
+    (-2.9, 2.9),
+    (-2.1, 1.3),
+    (-5.0, 5.0),
+    (-1.5, 2.4),
+    (-3.9, 3.9),
+]
 
 
 class EGMTrajectoryController(Node):
@@ -62,14 +75,24 @@ class EGMTrajectoryController(Node):
         self.declare_parameter("right_udp_port", 6512)
         self.declare_parameter("joint_state_rate", 250.0)  # Hz
         self.declare_parameter("trajectory_dt", 0.004)     # 4ms EGM cycle
+        self.declare_parameter("recv_timeout", 0.01)
         self.declare_parameter("final_error_tolerance_deg", 2.0)
+        self.declare_parameter("joint_state_freshness_sec", 0.25)
+        self.declare_parameter("final_settle_timeout_sec", 1.0)
+        self.declare_parameter("joint_limit_clamp_tolerance_rad", 1e-3)
 
         robot_ip = self.get_parameter("robot_ip").value
         left_port = self.get_parameter("left_udp_port").value
         right_port = self.get_parameter("right_udp_port").value
         self.js_rate = self.get_parameter("joint_state_rate").value
         self.traj_dt = self.get_parameter("trajectory_dt").value
+        recv_timeout = self.get_parameter("recv_timeout").value
         self.final_error_tolerance_deg = self.get_parameter("final_error_tolerance_deg").value
+        self.joint_state_freshness_sec = self.get_parameter("joint_state_freshness_sec").value
+        self.final_settle_timeout_sec = self.get_parameter("final_settle_timeout_sec").value
+        self.joint_limit_clamp_tolerance_rad = self.get_parameter(
+            "joint_limit_clamp_tolerance_rad"
+        ).value
 
         # Sessão RWS para leitura de posição dos grippers
         self._rws_session = requests.Session()
@@ -81,13 +104,22 @@ class EGMTrajectoryController(Node):
             robot_ip=robot_ip,
             left_udp_port=left_port,
             right_udp_port=right_port,
+            recv_timeout=recv_timeout,
         )
         self.egm = EGMManager(config)
 
         # ── Joint State Publisher ──
         self.js_pub = self.create_publisher(JointState, "/joint_states", 10)
-        self.all_joint_names = LEFT_JOINT_NAMES + RIGHT_JOINT_NAMES + \
-                               [LEFT_GRIPPER_JOINT, RIGHT_GRIPPER_JOINT]
+        self.all_joint_names = (
+            RIGHT_JOINT_NAMES
+            + LEFT_JOINT_NAMES
+            + [
+                RIGHT_GRIPPER_JOINT,
+                RIGHT_GRIPPER_MIMIC_JOINT,
+                LEFT_GRIPPER_JOINT,
+                LEFT_GRIPPER_MIMIC_JOINT,
+            ]
+        )
 
         # ── Action Servers ──
         cb_group = ReentrantCallbackGroup()
@@ -128,6 +160,8 @@ class EGMTrajectoryController(Node):
         # Prevents MoveIt from sending a second goal while the first is still
         # executing, which would cause two threads to fight over the EGM sockets.
         self._trajectory_lock = threading.Lock()
+        self._goal_gate_lock = threading.Lock()
+        self._trajectory_reserved = False
 
         # Gripper positions (read from RWS or set to default)
         self._gripper_left_pos = 0.0
@@ -186,17 +220,36 @@ class EGMTrajectoryController(Node):
         left_state = self.egm.left.get_state()
         right_state = self.egm.right.get_state()
 
-        if not left_state.valid and not right_state.valid:
+        now = time.time()
+        left_fresh = left_state.valid and (
+            now - left_state.timestamp <= self.joint_state_freshness_sec
+        )
+        right_fresh = right_state.valid and (
+            now - right_state.timestamp <= self.joint_state_freshness_sec
+        )
+
+        # Publish only when both arms have fresh feedback so MoveIt never sees
+        # a "complete" robot state built from stale or missing EGM data.
+        if not (left_fresh and right_fresh):
             return
 
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = self.all_joint_names
 
-        left_pos = left_state.joints_urdf_rad if left_state.valid else [0.0] * 7
-        right_pos = right_state.joints_urdf_rad if right_state.valid else [0.0] * 7
+        left_pos = self._clamp_to_joint_bounds(left_state.joints_urdf_rad)
+        right_pos = self._clamp_to_joint_bounds(right_state.joints_urdf_rad)
 
-        msg.position = left_pos + right_pos + [self._gripper_left_pos, self._gripper_right_pos]
+        msg.position = (
+            right_pos
+            + left_pos
+            + [
+                self._gripper_right_pos,
+                self._gripper_right_pos,
+                self._gripper_left_pos,
+                self._gripper_left_pos,
+            ]
+        )
         msg.velocity = []
         msg.effort = []
 
@@ -253,6 +306,16 @@ class EGMTrajectoryController(Node):
     # ═══════════════════════════════════════════════════════════════
 
     def _goal_callback(self, goal_request):
+        with self._goal_gate_lock:
+            if self._trajectory_reserved or self._trajectory_lock.locked():
+                self.get_logger().warn("Rejecting goal: another trajectory is still executing")
+                return GoalResponse.REJECT
+
+            # Reserve the single active-trajectory slot immediately on goal
+            # acceptance so a second request cannot slip in before execute()
+            # acquires the runtime lock.
+            self._trajectory_reserved = True
+
         joint_names = set(goal_request.trajectory.joint_names)
 
         left_requested = any(j in LEFT_JOINT_NAMES for j in joint_names)
@@ -260,10 +323,14 @@ class EGMTrajectoryController(Node):
 
         if left_requested and not self.egm.left.is_connected:
             self.get_logger().error("Rejecting goal: left arm EGM not connected")
+            with self._goal_gate_lock:
+                self._trajectory_reserved = False
             return GoalResponse.REJECT
 
         if right_requested and not self.egm.right.is_connected:
             self.get_logger().error("Rejecting goal: right arm EGM not connected")
+            with self._goal_gate_lock:
+                self._trajectory_reserved = False
             return GoalResponse.REJECT
 
         return GoalResponse.ACCEPT
@@ -304,14 +371,8 @@ class EGMTrajectoryController(Node):
         """
         result = FollowJointTrajectory.Result()
 
-        # ── Acquire global trajectory lock (non-blocking) ──
-        if not self._trajectory_lock.acquire(blocking=False):
-            self.get_logger().error(
-                f"Trajectory already executing — rejecting new goal for arms={arms}")
-            goal_handle.abort()
-            result.error_code = FollowJointTrajectory.Result.INVALID_GOAL
-            result.error_string = "Another trajectory is already executing"
-            return result
+        # ── Acquire global trajectory lock ──
+        self._trajectory_lock.acquire()
 
         trajectory = goal_handle.request.trajectory
         joint_names = list(trajectory.joint_names)
@@ -435,6 +496,13 @@ class EGMTrajectoryController(Node):
                     time.sleep(sleep_time)
 
             # ── Check final position ──
+            settled = self._settle_to_final_targets(arm_trajs)
+            if not settled:
+                self.get_logger().warn(
+                    "Robot did not fully settle to the final target before timeout; "
+                    "checking final error with latest feedback"
+                )
+
             all_converged = True
 
             for arm, data in arm_trajs.items():
@@ -497,6 +565,8 @@ class EGMTrajectoryController(Node):
             for arm in arms:
                 setattr(self, f"_executing_{arm}", False)
             self._trajectory_lock.release()
+            with self._goal_gate_lock:
+                self._trajectory_reserved = False
 
     # ═══════════════════════════════════════════════════════════════
     # Trajectory Interpolation
@@ -533,6 +603,63 @@ class EGMTrajectoryController(Node):
                 return [(p1[j] - p0[j]) / dt for j in range(len(p0))]
 
         return [0.0] * len(waypoints[0][1])
+
+    def _clamp_to_joint_bounds(self, joints_urdf_rad: list) -> list:
+        """
+        Clamp very small encoder overshoots back into the published joint bounds
+        so MoveIt does not reject the next plan over tiny numerical violations.
+        """
+        clamped = []
+        tol = self.joint_limit_clamp_tolerance_rad
+
+        for value, (lower, upper) in zip(joints_urdf_rad, ARM_JOINT_LIMITS_RAD):
+            if lower - tol <= value < lower:
+                clamped.append(lower)
+            elif upper < value <= upper + tol:
+                clamped.append(upper)
+            else:
+                clamped.append(value)
+
+        return clamped
+
+    def _settle_to_final_targets(self, arm_trajs: dict) -> bool:
+        """
+        Keep commanding the final target briefly so the robot can converge before
+        we decide success/abort.
+        """
+        deadline = time.perf_counter() + self.final_settle_timeout_sec
+        tolerance_rad = math.radians(self.final_error_tolerance_deg)
+
+        while time.perf_counter() < deadline:
+            all_converged = True
+
+            for _, data in arm_trajs.items():
+                target_urdf = data["waypoints"][-1][1]
+                with data["lock"]:
+                    data["channel"].send_urdf_command(target_urdf, [0.0] * len(target_urdf))
+
+            for arm, data in arm_trajs.items():
+                target_urdf = data["waypoints"][-1][1]
+                with data["lock"]:
+                    data["channel"].receive_and_update()
+                    state = data["channel"].get_state()
+
+                if not state.valid:
+                    all_converged = False
+                    continue
+
+                max_err = max(
+                    abs(state.joints_urdf_rad[i] - target_urdf[i]) for i in range(7)
+                )
+                if max_err > tolerance_rad:
+                    all_converged = False
+
+            if all_converged:
+                return True
+
+            time.sleep(self.traj_dt)
+
+        return False
 
     # ═══════════════════════════════════════════════════════════════
     # Shutdown

@@ -26,7 +26,7 @@ This package provides the RWS (HTTP) half of the ROS 2 ↔ ABB YuMi bridge:
 
 | Mode | Launch file | Joint state rate | Trajectory execution |
 |------|-------------|-----------------|----------------------|
-| **RWS** | `yumi_rws.launch.py` | 10 Hz (HTTP polling) | RAPID `MoveAbsJ` via HTTP variable writes |
+| **RWS** | `yumi_rws.launch.py` | 10 Hz (HTTP polling) | RAPID `runMoveAbsJMulti` via HTTP variable writes |
 | **EGM** | `yumi_egm_interface` → `yumi_egm.launch.py` | 100–250 Hz (UDP) | Real-time interpolation at 4 ms cycles |
 
 ---
@@ -123,13 +123,15 @@ MoveIt2
 ### 1. RWS mode — full MoveIt2 stack via HTTP
 
 ```bash
+unset GTK_PATH
+source ~/yumi_ws/install/setup.bash
 ros2 launch yumi_rws_interface yumi_rws.launch.py robot_ip:=192.168.125.1
 ```
 
 Starts: `robot_state_publisher` + `joint_state_publisher` (10 Hz) + `rws_commander`
       + `rws_trajectory_controller` + `gripper_action_server` + `move_group`
 
-Optional: add `rviz:=true` to open RViz2.
+RViz launches by default. Use `rviz:=false` to disable it.
 
 ### 2. EGM mode — full MoveIt2 stack at 250 Hz
 
@@ -212,16 +214,20 @@ Located in `scripts/archive/`:
 
 ```bash
 # Build
-cd ~/yumi_ws && colcon build --packages-select yumi_rws_interface --symlink-install
+cd ~/yumi_ws && colcon build --packages-select yumi_description yumi_moveit_config yumi_rws_interface --symlink-install
+source install/setup.bash
 
 # Check running nodes
 ros2 node list
 
 # Check joint states
-ros2 topic echo /joint_states
+ros2 topic hz /joint_states
 
 # Test connection to robot
 ros2 service call /yumi/test_connection std_srvs/srv/Trigger
+
+# Get controller state
+ros2 service call /yumi/get_state std_srvs/srv/Trigger
 
 # Start RAPID
 ros2 service call /yumi/start_rapid std_srvs/srv/Trigger
@@ -230,10 +236,10 @@ ros2 service call /yumi/start_rapid std_srvs/srv/Trigger
 ros2 service call /yumi/set_motors std_srvs/srv/SetBool "data: true"
 
 # Open left gripper
-ros2 service call /left_gripper/open std_srvs/srv/Trigger
+ros2 action send_goal /left_gripper_controller/gripper_cmd control_msgs/action/GripperCommand "{command: {position: 0.025, max_effort: 0.0}}"
 
 # Close right gripper
-ros2 service call /right_gripper/close std_srvs/srv/Trigger
+ros2 action send_goal /right_gripper_controller/gripper_cmd control_msgs/action/GripperCommand "{command: {position: 0.0, max_effort: 0.0}}"
 ```
 
 ---
@@ -272,6 +278,9 @@ the planned path and potentially causing collisions.
    `jointtarget` value (`[[rax_1..rax_6],[eax_a,9E9,...]]`).
 3. `wp_count`, `wp_speed`, and `routine_name_input = "runMoveAbsJMulti"` are written.
 4. Signal `RUN_RAPID_ROUTINE` is pulsed to trigger RAPID execution.
+
+**Motion blending:** intermediate waypoints in `runMoveAbsJMulti` use `z5` and only
+the final waypoint uses `fine`. This makes RWS execution smoother than a stop-at-every-point loop.
 
 **Safety features:**
 - `normalize_ext_axis`: adjusts `eax_a` (joint 7) in all waypoints to take the
@@ -320,3 +329,14 @@ All motion commands use a "write variable → pulse signal" pattern:
 | RAPID Tasks | `T_ROB_L` (left), `T_ROB_R` (right) |
 | Motion Module | `TRobRAPID` |
 | Gripper Module | `TRobSG` |
+
+---
+
+## Validation Checklist
+
+After launch, the expected healthy baseline is:
+- `/joint_states` near 10 Hz
+- all 5 MoveIt controllers listed in `ros2 action list`
+- `/yumi/test_connection` succeeds
+- left/right arm plan+execute works in RViz
+- gripper actions return realistic final positions

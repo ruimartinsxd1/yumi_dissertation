@@ -41,7 +41,7 @@ class EGMConfig:
     right_udp_port: int = 6512     # Port for RIGHT arm (eax_a ≈ -135°)
     signal_start: str = "EGM_START_JOINT"
     signal_stop: str = "EGM_STOP"
-    recv_timeout: float = 0.05     # UDP receive timeout [s]
+    recv_timeout: float = 0.01     # UDP receive timeout [s]
 
 
 @dataclass
@@ -98,7 +98,9 @@ RIGHT_JOINT_NAMES = [
 
 # Gripper joint names (not controlled by EGM, published separately)
 LEFT_GRIPPER_JOINT = "gripper_l_joint"
+LEFT_GRIPPER_MIMIC_JOINT = "gripper_l_joint_m"
 RIGHT_GRIPPER_JOINT = "gripper_r_joint"
+RIGHT_GRIPPER_MIMIC_JOINT = "gripper_r_joint_m"
 
 
 def egm_deg_to_urdf_rad(egm_joints_deg: list) -> list:
